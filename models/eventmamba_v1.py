@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
 from modules import LocalGrouper
+# from models.modules import LocalGrouper
 from mamba_layer import MambaBlock
 
 ##### Define the attention mechanism #####
@@ -50,15 +51,17 @@ class Linear2Layer(nn.Module):
         return self.act(self.net2(self.net1(x)) + x)
 
 class EventMamba(nn.Module):
-    def __init__(self,num_classes=6,num=1024):
+    def __init__(self,num_classes=6,num=1024,bignet=False):
         super().__init__()
         self.n = num
         bimamba_type = "v2"
         # bimamba_type = None
         # self.feature_list = [6,16,32,64]
         # self.feature_list = [6,32,64,128]
-        self.feature_list = [6,64,128,256]
-        # self.feature_list = [6,128,256,512]
+        if bignet:
+            self.feature_list = [6,128,256,512]
+        else:
+            self.feature_list = [6,64,128,256]
         self.group = LocalGrouper(3, 512, 24, False, "anchor")
         self.group_1 =LocalGrouper(self.feature_list[1], 256, 24, False, "anchor")
         self.group_2 =LocalGrouper(self.feature_list[2], 128, 24, False, "anchor")

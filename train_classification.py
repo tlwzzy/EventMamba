@@ -16,6 +16,7 @@ from tqdm import tqdm
 import sklearn.metrics as metrics
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
+from point_augment import batch_augment
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -32,8 +33,8 @@ def parse_args():
     # parser.add_argument("--data_path", type=str, default='/root/autodl-tmp/EventMamba-main/data/THU/dataset/', help="path to dataset")
     # parser.add_argument('--num_category', default=50, type=int, help='the category of action recogniton 10,12,50,51,101')
     parser.add_argument("--data_path", type=str, default='/root/autodl-tmp/EventMamba-main/data/DVS-Lip/', help="path to dataset")
-    parser.add_argument('--num_category', default=100, type=int, help='the category of action recogniton 10,12,50,51,101')
-    parser.add_argument('--num_point', type=int, default=2048, help='Point Number')
+    parser.add_argument('--num_category', default=70, type=int, help='the category of action recogniton 10,12,50,51,101')
+    parser.add_argument('--num_point', type=int, default=4096, help='Point Number')
     parser.add_argument("--log_path", type=str, default='./tensorboard_log/', help="path to tesnorboard_log")
     parser.add_argument("--log_name", type=str, default='/dvs_lip/', help="path to tesnorboard_log")
     parser.add_argument('--epoch', default=350, type=int, help='number of epoch in training')
@@ -41,6 +42,8 @@ def parse_args():
     parser.add_argument('--optimizer', type=str, default='AdamW', help='optimizer for training: Adam, AdamW or SGD')
     parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
     parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate')
+    parser.add_argument('--augment', action='store_true', default=False, help='using point cloud data augmentation')
+    parser.add_argument('--bignet', action='store_true', default=False, help='using big network with more channels')
     return parser.parse_args()
 
 def inplace_relu(m):
@@ -113,7 +116,9 @@ def train(net, trainloader, optimizer, criterion, device, args):
     train_true = []
     time_cost = datetime.datetime.now()
     for batch_idx, (data, label) in enumerate(trainloader):
-        data = data.reshape(args.batch_size,args.num_point,3)
+        data = data.reshape(args.batch_size, args.num_point, 3)
+        if args.augment:
+            data = batch_augment(data)
         data, label = data.to(device), label.to(device).squeeze()
         data = data.permute(0, 2, 1)
         optimizer.zero_grad()
@@ -272,6 +277,10 @@ def main(args):
     log_string('PARAMETER ...')
     log_string(args)
 
+    ##### 数据增强提示 #####
+    if args.augment:
+        log_string('已启用点云数据增强 (point cloud augmentation enabled)')
+
     ##### data loading #####
     log_string('Load dataset ...')
     TRAIN_FILES = [args.data_path+"train.h5"]
@@ -310,7 +319,7 @@ def main(args):
     best_train_loss = float("inf")
 
     from models.eventmamba_v1 import EventMamba
-    classifier = EventMamba(num_classes=args.num_category)
+    classifier = EventMamba(num_classes=args.num_category, num=args.num_point)
     criterion = cal_loss
     classifier.apply(inplace_relu)
     device = 'cuda'
