@@ -7,8 +7,7 @@ import numpy as np
 import datetime
 import logging
 import shutil
-import hydra
-from omegaconf import DictConfig, OmegaConf
+import argparse
 import provider_data
 import time
 import torch.nn.functional as F
@@ -17,7 +16,7 @@ from tqdm import tqdm
 import sklearn.metrics as metrics
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
-from point_augment import batch_augment
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
@@ -25,14 +24,31 @@ TOTAL_BAR_LENGTH = 65.
 last_time = time.time()
 begin_time = last_time
 
-# 移除parse_args函数，使用Hydra配置
+def parse_args():
+    parser = argparse.ArgumentParser('training')
+    parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
+    parser.add_argument('--gpu', type=str, default='1', help='specify gpu device')
+    parser.add_argument('--batch_size', type=int, default = 32, help='batch size in training')
+    # parser.add_argument("--data_path", type=str, default='/root/autodl-tmp/EventMamba-main/data/THU/dataset/', help="path to dataset")
+    # parser.add_argument('--num_category', default=50, type=int, help='the category of action recogniton 10,12,50,51,101')
+    parser.add_argument("--data_path", type=str, default='/root/autodl-tmp/EventMamba-main/data/DVS-Lip/', help="path to dataset")
+    parser.add_argument('--num_category', default=100, type=int, help='the category of action recogniton 10,12,50,51,101')
+    parser.add_argument('--num_point', type=int, default=2048, help='Point Number')
+    parser.add_argument("--log_path", type=str, default='./tensorboard_log/', help="path to tesnorboard_log")
+    parser.add_argument("--log_name", type=str, default='/dvs_lip/', help="path to tesnorboard_log")
+    parser.add_argument('--epoch', default=350, type=int, help='number of epoch in training')
+    parser.add_argument('--learning_rate', default=1e-3, type=float, help='learning rate in training')
+    parser.add_argument('--optimizer', type=str, default='AdamW', help='optimizer for training: Adam, AdamW or SGD')
+    parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
+    parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate')
+    return parser.parse_args()
 
 def inplace_relu(m):
     classname = m.__class__.__name__
     if classname.find('ReLU') != -1:
         m.inplace=True
 
-def validate(net, testloader, criterion, device, mark_test, cfg):
+def validate(net, testloader, criterion, device, mark_test, args):
     net.eval()
     test_loss = 0
     correct = 0
@@ -88,7 +104,7 @@ def validate(net, testloader, criterion, device, mark_test, cfg):
         "test_acc_seq":correct_seq/count
     }
 
-def train(net, trainloader, optimizer, criterion, device, cfg, current_epoch):
+def train(net, trainloader, optimizer, criterion, device, args):
     net.train()
     train_loss = 0
     correct = 0
@@ -97,10 +113,7 @@ def train(net, trainloader, optimizer, criterion, device, cfg, current_epoch):
     train_true = []
     time_cost = datetime.datetime.now()
     for batch_idx, (data, label) in enumerate(trainloader):
-        data = data.reshape(cfg.training.batch_size, cfg.data.num_point, 3)
-        # 只在100轮及以后增强
-        if cfg.training.augment and current_epoch >= 100:
-            data = batch_augment(data)
+        data = data.reshape(args.batch_size,args.num_point,3)
         data, label = data.to(device), label.to(device).squeeze()
         data = data.permute(0, 2, 1)
         optimizer.zero_grad()
@@ -228,30 +241,27 @@ def save_model(net, epoch, path, acc, is_best, **kwargs):
     if is_best:
         shutil.copyfile(filepath, os.path.join(path, 'best_checkpoint.pth'))
 
-@hydra.main(version_base=None, config_path="configs", config_name="config")
-def main(cfg: DictConfig):
-    ##### 设置环境变量 #####
-    os.environ["CUDA_VISIBLE_DEVICES"] = cfg.environment.cuda_visible_devices
-    
+def main(args):
     ##### log #####
     def log_string(str):
         logger.info(str)
         print(str)
-    
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
-    exp_dir = Path(cfg.output.checkpoint_dir)
+    exp_dir = Path('./log/')
     exp_dir.mkdir(exist_ok=True)
-    if cfg.logging.log_dir is None:
+    exp_dir = exp_dir.joinpath('classification')
+    exp_dir.mkdir(exist_ok=True)
+    if args.log_dir is None:
         exp_dir = exp_dir.joinpath(timestr)
     else:
-        exp_dir = exp_dir.joinpath(cfg.logging.log_dir)
+        exp_dir = exp_dir.joinpath(args.log_dir)
     exp_dir.mkdir(exist_ok=True)
     checkpoints_dir = exp_dir.joinpath('checkpoints/')
     checkpoints_dir.mkdir(exist_ok=True)
     log_dir = exp_dir.joinpath('logs/')
     log_dir.mkdir(exist_ok=True)
-    writer = SummaryWriter(cfg.logging.log_path + cfg.logging.log_name)
-    
+    writer = SummaryWriter(args.log_path + args.log_name)
+    args = parse_args()
     logger = logging.getLogger("Model")
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -260,16 +270,12 @@ def main(cfg: DictConfig):
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     log_string('PARAMETER ...')
-    log_string(OmegaConf.to_yaml(cfg))
-
-    ##### 数据增强提示 #####
-    if cfg.training.augment:
-        log_string('已启用点云数据增强 (point cloud augmentation enabled)')
+    log_string(args)
 
     ##### data loading #####
     log_string('Load dataset ...')
-    TRAIN_FILES = [cfg.data.data_path+"train.h5"]
-    TEST_FILES = [cfg.data.data_path+"test.h5"]
+    TRAIN_FILES = [args.data_path+"train.h5"]
+    TEST_FILES = [args.data_path+"test.h5"]
     try:
         current_data_test, current_label_test, current_mark_test = provider_data.load_h5_mark(TEST_FILES[0])
     except:
@@ -279,39 +285,38 @@ def main(cfg: DictConfig):
     current_label_test = np.squeeze(current_label_test)
     current_data_test = torch.from_numpy(current_data_test)
     current_label_test = torch.from_numpy(current_label_test.astype('int64'))
-    current_data_test = current_data_test.reshape(-1,cfg.data.num_point,3)
+    current_data_test = current_data_test.reshape(-1,args.num_point,3)
     dataset_test = torch.utils.data.TensorDataset(current_data_test, current_label_test)
-    testDataLoader = torch.utils.data.DataLoader(dataset_test, batch_size=cfg.training.batch_size, shuffle=False, num_workers=8, drop_last=False, pin_memory=True)
+    testDataLoader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size, shuffle=False, num_workers=8, drop_last=False, pin_memory=True)
     try:
         current_data_train, current_label_train,current_mark_sum = provider_data.load_h5_mark(TRAIN_FILES[0])
     except:
         current_data_train, current_label_train = provider_data.load_h5(TRAIN_FILES[0])
         current_mark_train = None
     print("train",len(current_data_train),current_data_train.shape)
-    current_label_train = np.squeeze(current_label_train)
+    current_label_train = np.squeeze(current_label_train)  
     print(current_data_train.shape,current_label_train.shape)
     current_data_train = torch.from_numpy(current_data_train)
     current_label_train = torch.from_numpy(current_label_train.astype('int64'))
-    current_data_train = current_data_train.reshape(-1,cfg.data.num_point,3)
+    current_data_train = current_data_train.reshape(-1,args.num_point,3)
     dataset = torch.utils.data.TensorDataset(current_data_train, current_label_train)
-    trainDataLoader = torch.utils.data.DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=8, drop_last=True, pin_memory=True)
+    trainDataLoader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, drop_last=True, pin_memory=True)
 
     ##### model loading #####
-    best_test_acc = 0.
+    best_test_acc = 0.  
     best_test_seq = 0.
     best_train_acc = 0.
     best_test_loss = float("inf")
     best_train_loss = float("inf")
 
     from models.eventmamba_v1 import EventMamba
-    classifier = EventMamba(num_classes=cfg.data.num_category, num=cfg.data.num_point, bignet=cfg.model.bignet)
+    classifier = EventMamba(num_classes=args.num_category)
     criterion = cal_loss
     classifier.apply(inplace_relu)
-    device = 'cuda' if not cfg.device.use_cpu else 'cpu'
-    if not cfg.device.use_cpu:
-        classifier = classifier.cuda()
+    device = 'cuda'
+    classifier = classifier.cuda()
 
-    ##### try to load the pretrain model #####
+    ##### try to load the pretrain model #####    
     try:
         checkpoint = torch.load('best_checkpoint.pth')
         start_epoch = checkpoint['epoch']
@@ -323,24 +328,21 @@ def main(cfg: DictConfig):
         start_epoch = 0
 
     ##### optimizer #####
-    if cfg.training.optimizer =="SGD":
-        optimizer = torch.optim.SGD(classifier.parameters(), lr=cfg.training.learning_rate, momentum=0.9)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, cfg.training.epoch)
-    elif cfg.training.optimizer =="AdamW":
-        optimizer = torch.optim.AdamW(classifier.parameters(), lr=cfg.training.learning_rate, weight_decay=cfg.training.decay_rate)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, cfg.training.epoch)
-    elif cfg.training.optimizer =="Adam":
-        optimizer = torch.optim.Adam(classifier.parameters(), lr=cfg.training.learning_rate, weight_decay=cfg.training.decay_rate)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, cfg.training.epoch)
+    if args.optimizer =="SGD":
+        optimizer = torch.optim.SGD(classifier.parameters(), lr=args.learning_rate, momentum=0.9)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epoch)
+    elif args.optimizer =="AdamW":
+        optimizer = torch.optim.AdamW(classifier.parameters(), lr=args.learning_rate, weight_decay=1e-4)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epoch)
     global_epoch = 0
 
     ##### start training #####
     logger.info('Start training...')
-    for epoch in range(start_epoch, cfg.training.epoch):
-        log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, cfg.training.epoch))
+    for epoch in range(start_epoch, args.epoch):
+        log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
         classifier = classifier.train()
         ##### training #####
-        train_out = train(classifier, trainDataLoader, optimizer, criterion, device, cfg, epoch)
+        train_out = train(classifier, trainDataLoader, optimizer, criterion, device,args)
         scheduler.step()
         best_train_acc = train_out["acc"] if (train_out["acc"] > best_train_acc) else best_train_acc
         best_train_loss = train_out["loss"] if (train_out["loss"] < best_train_loss) else best_train_loss
@@ -348,7 +350,7 @@ def main(cfg: DictConfig):
         writer.add_scalar('Loss/train', train_out["loss"], epoch)
         writer.add_scalar('Accuracy/train', train_out["acc"], epoch)
         #### testing #####
-        test_out = validate(classifier, testDataLoader, criterion, device, current_mark_test, cfg)
+        test_out = validate(classifier, testDataLoader, criterion, device,current_mark_test,args)
         if test_out["test_acc_seq"] > best_test_seq:
             best_test_seq = test_out["test_acc_seq"]
             is_best = True
@@ -378,4 +380,5 @@ def main(cfg: DictConfig):
     logger.info('End of training...')
 
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+    main(args)

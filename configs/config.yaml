@@ -1,0 +1,54 @@
+# EventMamba Classification Training Configuration
+# 基于train_classification.py的参数配置
+
+# 设备配置
+device:
+  use_cpu: false
+  gpu: "1"
+
+# 数据配置
+data:
+  # DVS-Lip数据集配置
+  data_path: "/root/autodl-tmp/EventMamba-main/data/DVS-Lip/"
+  num_category: 100
+  num_point: 8196
+  
+  # THU数据集配置（注释掉的备选配置）
+  # data_path: "/root/autodl-tmp/EventMamba-main/data/THU/dataset/"
+  # num_category: 50
+
+# 训练配置
+training:
+  batch_size: 32
+  epoch: 500
+  learning_rate: 1e-3
+  optimizer: "AdamW"  # 可选: Adam, AdamW, SGD
+  decay_rate: 1e-4
+  augment: false  # 是否启用点云数据增强
+
+# 模型配置
+model:
+  bignet: false  # 是否使用更大的网络（更多通道）
+
+# 日志配置
+logging:
+  log_path: "./tensorboard_log/"
+  log_name: "/dvs_lip/"
+  log_dir: null  # 如果为null，将使用时间戳作为目录名
+
+# 输出配置
+output:
+  checkpoint_dir: "./log/classification/"
+  save_best: true
+  save_last: true
+
+# 环境配置
+environment:
+  cuda_visible_devices: "0"
+
+# Hydra配置
+hydra:
+  run:
+    dir: ./outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false
