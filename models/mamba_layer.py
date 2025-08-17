@@ -83,3 +83,11 @@ class MambaBlock(nn.Module):
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None, **kwargs):
         return self.mixer.allocate_inference_cache(batch_size, max_seqlen, dtype=dtype, **kwargs)
+
+if __name__ == "__main__":
+    mamba_block = MambaBlock(dim=128, layer_idx=0, bimamba_type="v2").cuda()
+    print(mamba_block)
+    input = torch.randn(1, 1024, 128).cuda()
+    output = mamba_block(input)
+    print(output[0].shape)
+    print(output[1].shape)

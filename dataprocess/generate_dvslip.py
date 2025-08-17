@@ -91,5 +91,5 @@ if __name__ == "__main__":
     # 'spatial_filter': 空间域过滤  
     # 'snn': 脉冲神经网络去噪
     # 'combined': 组合多种方法
-    process_split('data/DVS-Lip/train', 'data/DVS-Lip/train.h5', enable_denoising=True, denoise_method='snn', num_points=8196)
-    process_split('data/DVS-Lip/test', 'data/DVS-Lip/test.h5', enable_denoising=True, denoise_method='snn', num_points=8196)
+    process_split('data/DVS-Lip/train', 'data/DVS-Lip/train.h5', enable_denoising=True, denoise_method='snn', num_points=4096)
+    process_split('data/DVS-Lip/test', 'data/DVS-Lip/test.h5', enable_denoising=True, denoise_method='snn', num_points=4096)

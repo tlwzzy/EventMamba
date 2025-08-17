@@ -11,7 +11,7 @@ data:
   # DVS-Lip数据集配置
   data_path: "/root/autodl-tmp/EventMamba-main/data/DVS-Lip/"
   num_category: 100
-  num_point: 8196
+  num_point: 4096
   
   # THU数据集配置（注释掉的备选配置）
   # data_path: "/root/autodl-tmp/EventMamba-main/data/THU/dataset/"
@@ -24,11 +24,15 @@ training:
   learning_rate: 1e-3
   optimizer: "AdamW"  # 可选: Adam, AdamW, SGD
   decay_rate: 1e-4
-  augment: false  # 是否启用点云数据增强
+  augment: true  # 是否启用点云数据增强
+  clip_grad: false # 是否启用梯度裁剪
 
 # 模型配置
 model:
   bignet: false  # 是否使用更大的网络（更多通道）
+  use_mssm: false # 是否使用MSSM
+  use_bimamba: false # 是否使用BIMAMBA
+  kneighbors: 24 # 邻居数量 默认24
 
 # 日志配置
 logging:

@@ -46,7 +46,7 @@ class Linear2Layer(nn.Module):
         return self.act(self.net2(self.net1(x)) + x)
 
 class EventMamba(nn.Module):
-    def __init__(self,num_classes=10):
+    def __init__(self,num_classes=10, num=1024, bignet=False):
         super().__init__()
         ##### define the feature list, the dimension of the feature list in different stages#####
         # self.feature_list = [16,32,64,128] # DVS GESTURE(0.992)

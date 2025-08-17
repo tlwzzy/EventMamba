@@ -18,6 +18,7 @@ import sklearn.metrics as metrics
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 from point_augment import batch_augment
+from data_augmentation import augment_point_cloud
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
@@ -99,14 +100,19 @@ def train(net, trainloader, optimizer, criterion, device, cfg, current_epoch):
     for batch_idx, (data, label) in enumerate(trainloader):
         data = data.reshape(cfg.training.batch_size, cfg.data.num_point, 3)
         # 只在100轮及以后增强
-        if cfg.training.augment and current_epoch >= 100:
-            data = batch_augment(data)
+        if cfg.training.augment and current_epoch >= 50:
+            # data = batch_augment(data)
+            data = augment_point_cloud(data)
+            # print("INFO: Augmented data.")
         data, label = data.to(device), label.to(device).squeeze()
         data = data.permute(0, 2, 1)
         optimizer.zero_grad()
         logits = net(data)
         loss = criterion(logits, label, net)
         loss.backward()
+        if cfg.training.clip_grad:
+            print("INFO: Clipping gradients.")
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)
         optimizer.step()
         train_loss += loss.item()
         preds = logits.max(dim=1)[1]
@@ -304,7 +310,7 @@ def main(cfg: DictConfig):
     best_train_loss = float("inf")
 
     from models.eventmamba_v1 import EventMamba
-    classifier = EventMamba(num_classes=cfg.data.num_category, num=cfg.data.num_point, bignet=cfg.model.bignet)
+    classifier = EventMamba(num_classes=cfg.data.num_category, num=cfg.data.num_point, bignet=cfg.model.bignet, use_mssm=cfg.model.use_mssm)
     criterion = cal_loss
     classifier.apply(inplace_relu)
     device = 'cuda' if not cfg.device.use_cpu else 'cpu'
@@ -378,4 +384,5 @@ def main(cfg: DictConfig):
     logger.info('End of training...')
 
 if __name__ == '__main__':
+    torch.autograd.set_detect_anomaly(True)
     main()

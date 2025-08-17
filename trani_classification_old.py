@@ -310,7 +310,7 @@ def main(args):
     best_train_loss = float("inf")
 
     from models.eventmamba_v1 import EventMamba
-    classifier = EventMamba(num_classes=args.num_category)
+    classifier = EventMamba(num_classes=args.num_category, MSSM=args.MSSM)
     criterion = cal_loss
     classifier.apply(inplace_relu)
     device = 'cuda'
